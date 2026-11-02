@@ -1,0 +1,7 @@
+{
+  "enabledPlugins": {
+    "compose-expert@aldefy-compose-skill": true,
+    "kotlin-lsp@claude-plugins-official": true,
+    "android-skills@android-skills": true
+  }
+}

@@ -1,0 +1,38 @@
+# Gradle / build output
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.kotlin/
+.cxx/
+.externalNativeBuild/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Machine-specific config (SDK path, JAVA_HOME and proxy settings)
+local.properties
+.env
+
+# Signing material
+*.jks
+*.keystore
+keystore.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Claude Code: keep shared .claude/settings.json, ignore personal overrides
+.claude/settings.local.json
+
+# Logs and captures
+*.log
+captures/
+hs_err_pid*
