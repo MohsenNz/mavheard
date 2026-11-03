@@ -1,6 +1,6 @@
 # H12 Heartbeat
 
-Android app for the Skydroid H12 that shows whether an ArduPilot flight controller is **ARMED**, **DISARMED** or **UNKNOWN**. It reads MAVLink HEARTBEATs from the H12's internal UART (`/dev/ttyHS1`, 921600 8N1). It is read-only and never writes to the port.
+Android app for the Skydroid H12 that shows whether an ArduPilot flight controller is **ARMED**, **DISARMED** or **UNKNOWN**. It reads MAVLink HEARTBEATs from the H12's internal UART (`/dev/ttyHS1`, 921600 8N1). It can also arm and disarm: tap the status box and confirm. That is the only thing it ever writes to the port, over the direct serial link or the TCP port. The Termux bridge and `tools/fake_fc.py` drop it, so there the command shows a timeout. An ArduPilot simulator on `127.0.0.1:5762` (SITL) accepts it.
 
 It is the Android version of `h12_mavlink_heartbeat.py`, which does the same in Termux.
 
@@ -37,7 +37,7 @@ Tested on the Pixel 8 and an API 29 emulator with the fake flight controller. **
 ## Layout
 | Path | Purpose |
 |---|---|
-| `app/src/main/cpp/serial.c` | read-only serial open, read and close (JNI) |
+| `app/src/main/cpp/serial.c` | serial open (read-write, read-only fallback), read, write and close (JNI) |
 | `app/src/main/java/com/mavheart/h12/` | `HeartbeatScanner`, `HeartbeatMonitor`, `ByteSource` implementations, Compose UI |
 | `app/src/test/` | JVM unit tests |
 | `termux/h12_bridge.py` | Termux fallback that forwards the serial port to TCP |

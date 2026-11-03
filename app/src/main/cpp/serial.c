@@ -1,4 +1,5 @@
-// Read-only serial access mirroring h12_mavlink_heartbeat.py lines 97-108.
+// Serial access mirroring h12_mavlink_heartbeat.py lines 97-108 (same termios settings).
+// Opened O_RDWR only when the caller asks for it (arm/disarm); otherwise O_RDONLY.
 #include <jni.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -10,16 +11,18 @@
 
 typedef struct {
     int fd;
+    int writable;
     int have_orig;
     struct termios orig;
 } Port;
 
 // Returns an opaque handle (> 0) or -errno.
 JNIEXPORT jlong JNICALL
-Java_com_mavheart_h12_SerialPort_nativeOpen(JNIEnv *env, jclass cls, jstring jpath) {
+Java_com_mavheart_h12_SerialPort_nativeOpen(JNIEnv *env, jclass cls, jstring jpath,
+                                            jboolean writable) {
     const char *path = (*env)->GetStringUTFChars(env, jpath, NULL);
     if (!path) return -ENOMEM;
-    int fd = open(path, O_RDONLY | O_NONBLOCK | O_NOCTTY);
+    int fd = open(path, (writable ? O_RDWR : O_RDONLY) | O_NONBLOCK | O_NOCTTY);
     int err = errno;
     (*env)->ReleaseStringUTFChars(env, jpath, path);
     if (fd < 0) return -err;
@@ -27,6 +30,7 @@ Java_com_mavheart_h12_SerialPort_nativeOpen(JNIEnv *env, jclass cls, jstring jpa
     Port *p = calloc(1, sizeof(Port));
     if (!p) { close(fd); return -ENOMEM; }
     p->fd = fd;
+    p->writable = writable ? 1 : 0;
 
     struct termios t;
     if (tcgetattr(fd, &t) != 0) { err = errno; close(fd); free(p); return -err; }
@@ -65,6 +69,29 @@ Java_com_mavheart_h12_SerialPort_nativeRead(JNIEnv *env, jclass cls, jlong handl
     if (n < 0) return (errno == EAGAIN || errno == EINTR) ? 0 : -errno;
     if (n > 0) (*env)->SetByteArrayRegion(env, buf, 0, (jsize)n, (const jbyte *)tmp);
     return (jint)n;
+}
+
+// Writes all of buf (waiting up to ~1 s total for the port to drain). Returns bytes written or -errno.
+JNIEXPORT jint JNICALL
+Java_com_mavheart_h12_SerialPort_nativeWrite(JNIEnv *env, jclass cls, jlong handle,
+                                             jbyteArray buf, jint len) {
+    Port *p = (Port *)(intptr_t)handle;
+    if (!p->writable) return -EBADF;
+    unsigned char tmp[512];
+    if (len < 0 || len > (jint)sizeof(tmp)) return -EINVAL;
+    (*env)->GetByteArrayRegion(env, buf, 0, len, (jbyte *)tmp);
+
+    int done = 0, waited = 0;
+    while (done < len) {
+        ssize_t n = write(p->fd, tmp + done, (size_t)(len - done));
+        if (n > 0) { done += (int)n; continue; }
+        if (n < 0 && errno != EAGAIN && errno != EINTR) return -errno;
+        if (waited >= 1000) return -ETIMEDOUT;
+        struct pollfd pfd = { .fd = p->fd, .events = POLLOUT };
+        poll(&pfd, 1, 50);
+        waited += 50;
+    }
+    return done;
 }
 
 // Restores the original termios, closes the fd, frees the handle.

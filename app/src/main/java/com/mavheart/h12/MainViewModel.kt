@@ -9,6 +9,9 @@ class MainViewModel : ViewModel() {
     private var resumeOnForeground = false
 
     fun start() { resumeOnForeground = true; monitor.start() }
+    /** Sends arm/disarm (user already confirmed). Returns false if not currently allowed. */
+    fun requestArm(arm: Boolean, force: Boolean = false) = monitor.requestArm(arm, force)
+
     fun stop() { resumeOnForeground = false; monitor.stop() }
 
     /** App left the foreground: release the port, but remember to resume. */

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Only for the 127.0.0.1 Termux-bridge fallback. The app never writes to the serial port. -->
+    <!-- Only for the 127.0.0.1 Termux-bridge fallback. The app writes to the serial port only for the confirmed arm/disarm command. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application

@@ -42,6 +42,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.mavlink.api)
+    implementation(libs.mavlink.definitions)
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit4)

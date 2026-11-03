@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
@@ -38,7 +39,11 @@ class MainActivity : ComponentActivity() {
                     view.keepScreenOn = state.running
                     onDispose { view.keepScreenOn = false }
                 }
-                HeartbeatScreen(state, onToggle = { if (state.running) vm.stop() else vm.start() })
+                HeartbeatScreen(
+                    state,
+                    onToggle = { if (state.running) vm.stop() else vm.start() },
+                    onArm = { arm, force -> vm.requestArm(arm, force) },
+                )
             }
         }
     }
@@ -49,7 +54,20 @@ private val Red = Color(0xFFC62828)
 private val Grey = Color(0xFF546E7A)
 
 @Composable
-fun HeartbeatScreen(s: UiState, onToggle: () -> Unit) {
+fun HeartbeatScreen(s: UiState, onToggle: () -> Unit, onArm: (arm: Boolean, force: Boolean) -> Unit = { _, _ -> }) {
+    var dialog by remember { mutableStateOf<ArmDialog?>(null) }
+    // Close the dialog if the command is no longer allowed (e.g. heartbeat lost) while it is open.
+    LaunchedEffect(s.canCommand) { if (!s.canCommand) dialog = null }
+    dialog?.let { d ->
+        ArmConfirmDialog(d, onDismiss = { dialog = null }, onChoose = { d2 ->
+            when (d2) {
+                ArmDialog.Arm -> { dialog = null; onArm(true, false) }
+                ArmDialog.Disarm -> { dialog = null; onArm(false, false) }
+                ArmDialog.ForceDisarm -> { dialog = null; onArm(false, true) }
+                ArmDialog.ConfirmForce -> dialog = ArmDialog.ForceDisarm
+            }
+        })
+    }
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(16.dp).statusBarsPadding(),
@@ -62,15 +80,24 @@ fun HeartbeatScreen(s: UiState, onToggle: () -> Unit) {
             }
             Box(
                 Modifier.fillMaxWidth().height(160.dp)
-                    .background(color, RoundedCornerShape(16.dp)),
+                    .background(color, RoundedCornerShape(16.dp))
+                    .clickable(enabled = s.canCommand) {
+                        dialog = if (s.link == LinkState.ARMED) ArmDialog.Disarm else ArmDialog.Arm
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(label, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     if (s.link == LinkState.UNKNOWN && s.running)
                         Text("no recent heartbeat", color = Color.White.copy(alpha = .8f))
+                    else if (s.canCommand)
+                        Text("tap to ${if (s.link == LinkState.ARMED) "disarm" else "arm"}",
+                            color = Color.White.copy(alpha = .8f))
                 }
             }
+
+            val status = s.commandResult?.let { commandText(it) } ?: s.commandBlockedReason
+            status?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
             s.error?.let {
                 Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(8.dp)) {
@@ -102,5 +129,53 @@ private fun Row2(name: String, value: String?) {
         Text(name, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(12.dp))
         Text(value ?: "—", fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f, fill = false))
+    }
+}
+
+private enum class ArmDialog { Arm, Disarm, ConfirmForce, ForceDisarm }
+
+private fun commandText(r: CommandResult) = when (r) {
+    CommandResult.Sending -> "Sending command…"
+    is CommandResult.Accepted -> if (r.arm) "Arm command accepted" else "Disarm command accepted"
+    is CommandResult.Rejected -> "Command rejected: ${r.reason}"
+    CommandResult.Timeout -> "No reply from the flight controller (timeout)"
+    is CommandResult.Failed -> "Send failed: ${r.message}"
+}
+
+@Composable
+private fun ArmConfirmDialog(d: ArmDialog, onDismiss: () -> Unit, onChoose: (ArmDialog) -> Unit) {
+    when (d) {
+        ArmDialog.Arm -> AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Arm motors?") },
+            text = { Text("The vehicle will arm. Make sure it is safe to do so.") },
+            confirmButton = { TextButton(onClick = { onChoose(ArmDialog.Arm) }) { Text("Arm") } },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        )
+        ArmDialog.Disarm -> AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Disarm?") },
+            text = { Text("ArduPilot refuses a normal disarm while flying.") },
+            confirmButton = { TextButton(onClick = { onChoose(ArmDialog.Disarm) }) { Text("Disarm") } },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { onChoose(ArmDialog.ConfirmForce) }) {
+                        Text("Force disarm…", color = MaterialTheme.colorScheme.error)
+                    }
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                }
+            },
+        )
+        ArmDialog.ConfirmForce, ArmDialog.ForceDisarm -> AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("FORCE disarm?", color = MaterialTheme.colorScheme.error) },
+            text = { Text("This skips safety checks and kills the motors immediately, even in flight. The vehicle can fall.") },
+            confirmButton = {
+                TextButton(onClick = { onChoose(ArmDialog.ForceDisarm) }) {
+                    Text("Force disarm", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        )
     }
 }

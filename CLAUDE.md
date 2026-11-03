@@ -9,7 +9,7 @@ Android app (Kotlin, Jetpack Compose, NDK) that shows ARMED / DISARMED / UNKNOWN
 - Device-free run: `python3 tools/fake_fc.py` and `adb reverse tcp:5762 tcp:5762`, then start the app. It falls back to TCP.
 
 ## Rules
-- **Read-only.** Never write to the serial port or send MAVLink commands. The port is opened `O_RDONLY`.
+- **Write only arm/disarm.** The only thing ever sent is the user-confirmed `MAV_CMD_COMPONENT_ARM_DISARM` COMMAND_LONG (`ArmCommand.kt`, built with mavlink-kotlin). Never add other commands or any unprompted write. The port opens `O_RDWR`, falling back to `O_RDONLY` if that is denied. TCP is writable too (SITL accepts commands), but `termux/h12_bridge.py` and `tools/fake_fc.py` are receive-only and drop them, so on those the command just times out. Force-disarm (param2 21196) needs its own second confirmation.
 - `HeartbeatScanner.kt` and `serial.c` are ports of `h12_mavlink_heartbeat.py`. Keep their behaviour identical to the script: accepted frames, CRC extra 50, the 3 s UNKNOWN rule, and the termios settings.
 - Source order in `HeartbeatMonitor`: direct `/dev/ttyHS1`, then `127.0.0.1:5762` (fed by `termux/h12_bridge.py`).
 - `targetSdk` is 28 on purpose, to match Termux's permissions. Don't raise it.
