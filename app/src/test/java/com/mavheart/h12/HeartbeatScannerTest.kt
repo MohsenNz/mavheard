@@ -22,6 +22,12 @@ class HeartbeatScannerTest {
         assertEquals(5L, hb.customMode); assertEquals(0x01, hb.baseMode); assertEquals(4, hb.systemStatus)
     }
 
+    @Test fun vehicleTypeIsParsed() { // all vectors carry MAV_TYPE 2 (quadrotor)
+        assertEquals(2, HeartbeatScanner().feed(V1_DISARMED).single().type)
+        assertEquals(2, HeartbeatScanner().feed(V2_ARMED).single().type)
+        assertTrue(isCopterType(HeartbeatScanner().feed(V2_ARMED).single().type))
+    }
+
     @Test fun mavlink1Armed() = assertTrue(HeartbeatScanner().feed(V1_ARMED).single().armed)
 
     @Test fun mavlink2DisarmedAndArmed() {

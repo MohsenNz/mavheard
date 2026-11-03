@@ -12,6 +12,9 @@ class MainViewModel : ViewModel() {
     /** Sends arm/disarm (user already confirmed). Returns false if not currently allowed. */
     fun requestArm(arm: Boolean, force: Boolean = false) = monitor.requestArm(arm, force)
 
+    /** Switches the Copter's flight mode (applies at once; no confirm). False if not allowed. */
+    fun requestMode(modeId: Int) = monitor.requestMode(modeId)
+
     fun stop() { resumeOnForeground = false; monitor.stop() }
 
     /** App left the foreground: release the port, but remember to resume. */

@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
                     state,
                     onToggle = { if (state.running) vm.stop() else vm.start() },
                     onArm = { arm, force -> vm.requestArm(arm, force) },
+                    onMode = { vm.requestMode(it) },
                 )
             }
         }
@@ -54,7 +55,12 @@ private val Red = Color(0xFFC62828)
 private val Grey = Color(0xFF546E7A)
 
 @Composable
-fun HeartbeatScreen(s: UiState, onToggle: () -> Unit, onArm: (arm: Boolean, force: Boolean) -> Unit = { _, _ -> }) {
+fun HeartbeatScreen(
+    s: UiState,
+    onToggle: () -> Unit,
+    onArm: (arm: Boolean, force: Boolean) -> Unit = { _, _ -> },
+    onMode: (Int) -> Unit = {},
+) {
     var dialog by remember { mutableStateOf<ArmDialog?>(null) }
     // Close the dialog if the command is no longer allowed (e.g. heartbeat lost) while it is open.
     LaunchedEffect(s.canCommand) { if (!s.canCommand) dialog = null }
@@ -96,6 +102,8 @@ fun HeartbeatScreen(s: UiState, onToggle: () -> Unit, onArm: (arm: Boolean, forc
                 }
             }
 
+            s.modeName?.let { name -> ModeSelector(name, s.customMode!!.toInt(), s.canCommand, onMode) }
+
             val status = s.commandResult?.let { commandText(it) } ?: s.commandBlockedReason
             status?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
@@ -136,7 +144,7 @@ private enum class ArmDialog { Arm, Disarm, ConfirmForce, ForceDisarm }
 
 private fun commandText(r: CommandResult) = when (r) {
     CommandResult.Sending -> "Sending command…"
-    is CommandResult.Accepted -> if (r.arm) "Arm command accepted" else "Disarm command accepted"
+    is CommandResult.Accepted -> r.text
     is CommandResult.Rejected -> "Command rejected: ${r.reason}"
     CommandResult.Timeout -> "No reply from the flight controller (timeout)"
     is CommandResult.Failed -> "Send failed: ${r.message}"
@@ -177,5 +185,25 @@ private fun ArmConfirmDialog(d: ArmDialog, onDismiss: () -> Unit, onChoose: (Arm
             },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         )
+    }
+}
+
+/** Current flight mode; tappable (when commands are allowed) to pick another one. Applies at once. */
+@Composable
+private fun ModeSelector(name: String, currentId: Int, enabled: Boolean, onPick: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    LaunchedEffect(enabled) { if (!enabled) open = false }
+    Box {
+        OutlinedButton(onClick = { open = true }, enabled = enabled, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+            Text("Mode: $name" + if (enabled) "  ▾" else "", fontSize = 18.sp)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            CopterMode.selectableModes.forEach { m ->
+                DropdownMenuItem(
+                    text = { Text(m.label + if (m.id == currentId) "  ✓" else "") },
+                    onClick = { open = false; onPick(m.id) },
+                )
+            }
+        }
     }
 }

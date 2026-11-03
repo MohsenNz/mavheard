@@ -9,6 +9,8 @@ data class Heartbeat(
     val baseMode: Int,
     val customMode: Long,
     val systemStatus: Int,
+    /** MAV_TYPE (payload byte 4), used to tell a Copter from a Plane. */
+    val type: Int,
 )
 
 const val ARDUPILOT_AUTOPILOT_ID = 3
@@ -78,6 +80,7 @@ class HeartbeatScanner {
                 customMode = b(p).toLong() or (b(p + 1).toLong() shl 8) or
                     (b(p + 2).toLong() shl 16) or (b(p + 3).toLong() shl 24),
                 systemStatus = b(p + 7),
+                type = b(p + 4),
             )
             i += frameSize
         }
