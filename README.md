@@ -12,6 +12,15 @@ The Source row in the app shows which one is in use. Any error text appears in a
 
 The status is UNKNOWN when no valid ArduPilot heartbeat has arrived for 3 seconds.
 
+## Background service and UDP proxy
+Start runs a foreground service (notification with a Stop button) that owns the serial port, so it keeps running with the app closed or the screen off. The status screen just subscribes to it.
+
+The **UDP proxy** card turns the service into a two-way serial <-> UDP bridge:
+- **Expose a port (server):** it binds the local UDP port (default 14555) on **all interfaces**. Any app on the H12, or any machine on the network, can send a datagram to it to register, then receives the vehicle's MAVLink (one frame per datagram) and can send MAVLink back. Peers that go quiet for 30 s are forgotten.
+- **Connect out (client):** fill in "Also send to host:port" (for example a GCS on `192.168.1.10:14550`). Frames are sent there from the start and its replies go to the vehicle.
+- **No authentication:** anyone who can reach the port can read the vehicle's data and, unless "Let UDP clients send to the vehicle" is off, send it commands (arm, mode, parameters, missions).
+- If the vendor ROM kills the service, use "Allow background running (battery)" or the system battery settings.
+
 ## Build
 Needs JDK 21 and the Android SDK, with NDK 29 and CMake 3.22.1.
 
@@ -37,6 +46,7 @@ Tested on the Pixel 8 and an API 29 emulator with the fake flight controller. **
 ## Layout
 | Path | Purpose |
 |---|---|
+| `app/src/main/java/com/mavheart/h12/proxy/` | `SerialHub` (single port owner), `UdpProxy`, `MavFrameSplitter`, `ProxyService` (foreground service), settings |
 | `app/src/main/cpp/serial.c` | serial open (read-write, read-only fallback), read, write and close (JNI) |
 | `app/src/main/java/com/mavheart/h12/` | `HeartbeatScanner`, `HeartbeatMonitor`, `ByteSource` implementations, Compose UI |
 | `app/src/test/` | JVM unit tests |

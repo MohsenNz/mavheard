@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import com.mavheart.h12.proxy.SerialHub
 import java.io.IOException
 
 enum class LinkState { ARMED, DISARMED, UNKNOWN }
@@ -90,11 +91,11 @@ fun linkState(lastHbMs: Long?, lastArmed: Boolean?, nowMs: Long): LinkState = wh
 class HeartbeatMonitor(
     private val scope: CoroutineScope,
     private val clockMs: () -> Long = { System.nanoTime() / 1_000_000 },
-    /** Candidates tried in order; first one that opens wins. */
-    private val sources: List<() -> ByteSource> = listOf(
-        { SerialPort.open() },
-        { TcpByteSource.open() },
-    ),
+    /**
+     * Candidates tried in order; first one that opens wins. By default the only candidate is a
+     * subscription to the [SerialHub], which owns the real port (direct, then TCP).
+     */
+    private val sources: List<() -> ByteSource> = listOf({ SerialHub.instance.subscribe() }),
 ) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -192,7 +193,11 @@ class HeartbeatMonitor(
                     }
                 }
                 _state.update {
-                    it.copy(link = linkState(lastHb, lastArmed, now), rawBytes = raw, heartbeats = count)
+                    it.copy(
+                        link = linkState(lastHb, lastArmed, now), rawBytes = raw, heartbeats = count,
+                        // These can change when the hub (re)connects to another source:
+                        sourceDescription = source.description, canWrite = source.canWrite,
+                    )
                 }
 
                 // --- arm/disarm and set-mode: the only write path ---

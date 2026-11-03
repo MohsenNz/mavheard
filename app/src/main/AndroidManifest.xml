@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Only for the 127.0.0.1 Termux-bridge fallback. The app writes to the serial port only for the confirmed arm/disarm command. -->
+    <!-- TCP fallback to the Termux bridge, and the UDP proxy. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Keep the serial/UDP proxy service alive in the background. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:allowBackup="false"
@@ -17,5 +22,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".proxy.ProxyService"
+            android:exported="false" />
     </application>
 </manifest>

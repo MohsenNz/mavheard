@@ -1,6 +1,10 @@
 package com.mavheart.h12
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -15,7 +19,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+import com.mavheart.h12.proxy.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,9 +47,20 @@ class MainActivity : ComponentActivity() {
                     view.keepScreenOn = state.running
                     onDispose { view.keepScreenOn = false }
                 }
+                val ctx = LocalContext.current
+                val hub by vm.hubState.collectAsStateWithLifecycle()
+                val store = remember { ProxySettingsStore(ctx) }
+                var settings by remember { mutableStateOf(store.load()) }
                 HeartbeatScreen(
                     state,
-                    onToggle = { if (state.running) vm.stop() else vm.start() },
+                    onToggle = { if (state.running) ProxyService.stop(ctx) else ProxyService.start(ctx) },
+                    hub = hub,
+                    settings = settings,
+                    onSettings = {
+                        settings = it; store.save(it)
+                        if (state.running) ProxyService.start(ctx) // re-apply to the running service
+                    },
+                    onBattery = { requestBatteryExemption(ctx) },
                     onArm = { arm, force -> vm.requestArm(arm, force) },
                     onMode = { vm.requestMode(it) },
                 )
@@ -60,6 +79,10 @@ fun HeartbeatScreen(
     onToggle: () -> Unit,
     onArm: (arm: Boolean, force: Boolean) -> Unit = { _, _ -> },
     onMode: (Int) -> Unit = {},
+    hub: HubState = HubState(),
+    settings: ProxySettings = ProxySettings(),
+    onSettings: (ProxySettings) -> Unit = {},
+    onBattery: () -> Unit = {},
 ) {
     var dialog by remember { mutableStateOf<ArmDialog?>(null) }
     // Close the dialog if the command is no longer allowed (e.g. heartbeat lost) while it is open.
@@ -127,6 +150,8 @@ fun HeartbeatScreen(
                 Row2("ArduPilot heartbeats", s.heartbeats.toString())
                 Row2("First bytes", s.firstBytesHex)
             }
+
+            ProxyCard(settings, hub, s.running, onSettings, onBattery)
         }
     }
 }
@@ -204,6 +229,75 @@ private fun ModeSelector(name: String, currentId: Int, enabled: Boolean, onPick:
                     onClick = { open = false; onPick(m.id) },
                 )
             }
+        }
+    }
+}
+
+private fun requestBatteryExemption(ctx: Context) {
+    try {
+        ctx.startActivity(
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    } catch (_: Exception) { /* not available on this ROM */ }
+}
+
+/** Settings and status for the serial <-> UDP proxy that runs in the background service. */
+@Composable
+private fun ProxyCard(
+    settings: ProxySettings,
+    hub: HubState,
+    running: Boolean,
+    onChange: (ProxySettings) -> Unit,
+    onBattery: () -> Unit,
+) {
+    var portText by remember(settings.localPort) { mutableStateOf(settings.localPort.toString()) }
+    var remoteText by remember(settings.remote) { mutableStateOf(settings.remote) }
+    val portOk = portText.toIntOrNull()?.let { it in 1..65535 } == true
+    val remoteOk = remoteText.isBlank() || parseHostPort(remoteText) != null
+    val dirty = portText != settings.localPort.toString() || remoteText.trim() != settings.remote
+
+    Surface(tonalElevation = 2.dp, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("UDP proxy", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Switch(settings.udpEnabled, { onChange(settings.copy(udpEnabled = it)) })
+            }
+            OutlinedTextField(
+                portText, { portText = it }, Modifier.fillMaxWidth(),
+                label = { Text("Local UDP port (all interfaces)") }, singleLine = true, isError = !portOk,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            )
+            OutlinedTextField(
+                remoteText, { remoteText = it }, Modifier.fillMaxWidth(),
+                label = { Text("Also send to host:port (optional)") }, singleLine = true, isError = !remoteOk,
+            )
+            Button(
+                onClick = { onChange(settings.copy(localPort = portText.toInt(), remote = remoteText.trim())) },
+                enabled = dirty && portOk && remoteOk,
+            ) { Text("Apply") }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Let UDP clients send to the vehicle", Modifier.weight(1f))
+                Switch(settings.allowClientsToSend, { onChange(settings.copy(allowClientsToSend = it)) })
+            }
+            if (settings.udpEnabled) {
+                Text(
+                    "Port ${settings.localPort} is open on ALL network interfaces: anyone on the network " +
+                        "can read the vehicle's data" + if (settings.allowClientsToSend) " and send it commands." else ".",
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            val status = buildString {
+                if (!running) append("Stopped. Press Start to run the proxy in the background.")
+                else {
+                    append(if (hub.connected) "Serial: ${hub.sourceDescription}" else "Serial: not connected")
+                    if (settings.udpEnabled) append("\nUDP :${settings.localPort} · ${hub.udpPeers} peer(s)")
+                    append("\nrx ${hub.rxBytes} B · tx ${hub.txBytes} B")
+                    hub.udpError?.let { append("\nUDP error: ").append(it) }
+                }
+            }
+            Text(status, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onBattery) { Text("Allow background running (battery)") }
         }
     }
 }
